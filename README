@@ -1,0 +1,10 @@
+How to Run:
+
+1. Create the keyspace and column families according to 'tpcc.cql' file.
+   Be patient. It may take a while.
+
+2. Modify the database configuration in 'loader.java' and 'tpcc.java’
+
+3. Load the database, using following command. [ (new Loader()).start; ]
+
+4. Run the TPCC_Client
