@@ -24,8 +24,7 @@ public class TPCC_Client {
 			InvalidRequestException, UnavailableException,
 			UnsupportedEncodingException, NotFoundException, TimedOutException {
 		TPCC t = new TPCC();
-		//t.Payment(1, "BAROUGHTABLE", 1, 1);;
-		t.Delivery(5);
+		t.Neworder(1, 1);
 		
 		//Loader l = new Loader();
 		//l.start();

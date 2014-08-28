@@ -1,10 +1,156 @@
+Description:
+	This project is about how to run TPC-C transactions similarly on Cassandra Database. 
+	The program is written in Java.
+
 How to Run:
 
-1. Create the keyspace and column families according to 'tpcc.cql' file.
-   Be patient. It may take a while.
+1. Create the keyspace and column families according to Scripts in Appendix.
 
-2. Modify the database configuration in 'loader.java' and 'tpcc.java’
+2. Modify the database configuration in 'loader.java' and 'tpcc.java’.
+	By default: 
+	/* Database configuration */
+	private String DB_KEYSPACE = "tpcc";
+	private String DB_ADDRESS = "localhost";
+	private int DB_PORT = 9160;
 
-3. Load the database, using following command. [ (new Loader()).start; ]
+3. Load the database, using following command. The whole process may take a while.
+	[ (new Loader().start; ]
+	[ (new Loader(int count_ware).start; ]
+	[ (new Loader(int count_ware, boolean option_debug).start; ]
 
-4. Run the TPCC_Client
+4. Run the TPCC_Client.
+
+Appendix: create keyspace and column family
+
+create keyspace tpcc; 
+use tpcc;
+
+create column family warehouse with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type;
+
+create column family district with comparator=UTF8Type and default_validation_class=UTF8Type 
+and key_validation_class=UTF8Type and column_metadata= 
+[{column_name:d_id,validation_class:UTF8Type,index_type:KEYS}, 
+{column_name:d_w_id,validation_class:UTF8Type,index_type:KEYS}];
+
+create column family customer with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type and
+column_metadata= [{column_name:c_last,validation_class:UTF8Type,index_type:KEYS}, {column_name:c_w_id,validation_class:UTF8Type,index_type:KEYS}, {column_name:c_d_id,validation_class:UTF8Type,index_type:KEYS}];
+
+create column family history with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type;
+
+create column family new_order with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type and 
+column_metadata=[{column_name:no_w_id,validation_class:UTF8Type,index_type:KEYS}, {column_name:no_d_id,validation_class:UTF8Type,index_type:KEYS},
+{column_name:no_id,validation_class:UTF8Type,index_type:KEYS}];
+
+create column family order with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type and column_metadata=[{column_name:o_w_id,validation_class:UTF8Type,index_type:KEYS},{column_name:o_d_id,validation_class:UTF8Type,index_type:KEYS},{column_name:o_c_id,validation_class:UTF8Type,index_type:KEYS}];
+
+create column family order_line with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type and 
+column_metadata= [{column_name:ol_w_id,validation_class:UTF8Type,index_type:KEYS},{column_name:ol_d_id,validation_class:UTF8Type,index_type:KEYS},{column_name:ol_o_id,validation_class:UTF8Type,index_type:KEYS},{column_name:ol_i_id,validation_class:UTF8Type,index_type:KEYS}];
+
+create column family item with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type
+and column_metadata= [{column_name:i_id,validation_class:UTF8Type,index_type:KEYS}];
+
+create column family stock with comparator=UTF8Type and default_validation_class=UTF8Type and key_validation_class=UTF8Type 
+and column_metadata=[{column_name:s_i_id,validation_class:UTF8Type,index_type:KEYS}];
+
+Appendix: Sample Out put:
+
+==============================New Order==================================
+Warehouse: 1	District: 1
+Customer: 871	Name: ATIONCALLYBAR	Credit: GC	Discount: 0.030477552
+Order Number: 3039 OrderId: 3039 Number_Lines: 15 W_tax: 0.15383352 D_tax: 0.17957321
+
+Supp_W Item_Id           Item Name     ol_q s_q  bg Price Amount
+     1  50934     5Rsqct5uz0reEoUcfpu5  7   75   G  38.08 344.62
+     1  34820 6KtAY257506SgD1NCDetb9o9  1   45   G  67.57  87.35
+     1  56930       twvn88WS3K09QMHtCa  7   85   G  58.20 526.65
+     1  43062 IoZtvG6j8m0Bun5qiO91gWvD 10   49   G  85.38 1103.78
+     1  13814   TNiiwcZ5SdF306tAR7hMf6  8   32   G  12.53 129.57
+     1  42550      6XxSFuy137r0YX8pelC  6   10   G  80.38 623.45
+     1  71670 Y0dhC7FJ6Jl7NoCkTD7RBy09  9    4   G  42.35 492.75
+     1   9970           4cKu7U353u1RR7  7   57   B  92.44 836.51
+     1  55078  U20iTqpb2b72glOUavrSN9S 10    2   G  65.60 848.10
+     1  38966       0w3k30DeEg2s9733jk  7   10   G  82.63 747.72
+     1  71604       YHG15GEk2MDP3c0fuk 10    3   B  49.65 641.85
+     1  30254        vwF7v5ai4M5AShqN0  3   42   G  79.77 309.35
+     1  34830           MibGFdSw2F8X4C  5   41   G  44.93 290.43
+     1  34262 uiS9k735Jd9xcyQZZ73L4src  3   34   G  94.88 367.99
+     1  79906      3z6A4ESMUWIvX25ql6R 10   87   G  32.58 421.13
+=========================================================================
+
+
+==============================New Order==================================
+Warehouse: 1	District: 1
+Customer: 105	Name: OUGHTBARPRES	Credit: BC	OrderId: 3072
+Exection Status: Item number is not valid
+=========================================================================
+
+
+==============================Payment====================================
+Date: 2014-08-28 13:22:19 District: 1
+Warehouse: 1			District
+27GN9qnI2p4eL				z2c5mYtK8W5
+81j8R9s4aNoEUt0B			8yVwcuwu8x80M41
+eTi4c1NkHuUPI qt 885800324	Lk88iEj71tBI k7 363141058
+
+Customer: 1	Customer-Warehouse: 1	Customer-District: 1
+Name:gSpR48P4DK2DkU OE BARBARBAR	Cust-Since:2014-08-28
+Nl6XEVoekO288apQu41			Cust-Credit:GC
+0U86m88VBRAuNqr8
+rk4Bhv540BmdmD5xCo ax 786731762 	Cust-Phone:3585013047435679
+
+Amount Paid:2940.3562			New Cust-Balance: -100918.086
+Credit Limit:50000
+
+Cust-data: 	617lU1E7nist929W9PaD29evfJ9rnq9VT34AbHgbQQn4Q4tVrt
+		5kYKUQxr399oo3n01Q02S3EIN8F0ccHg1013gRqDsECVngGgQY
+		5usILXXVs9YDU03KYp3EgJ9GXsDL4j4aH20eM53til03qjrieH
+		T5hoBeJS1XfXNATp395Xw347lFogcqcIueGeW2WJ1bC43j3L6M
+		3h4f2E8l9T6rDFmu69cvb1S7IOkuSUP3V8SbmqUVDHP7220Qyw
+		Kq9N375GhYe6F4eD6va12D4GGMk3kC6VKpF7pf5J60IEMWUxjL
+		kg2H905vXc6c7TILdOscLwLK575Yp439HXILI2TXVlrmuQs59x
+		NxEK7P3loGLv76ZlDooGr3pMqr1jU4N06b5M0tVE9097Z4Z1MI
+		800Y69DvBiMq68C9XJmc7AgjgW24pZ7FWa2hXc3clkqd
+=========================================================================
+
+
+==============================Order Status===============================
+Warehouse: 1 District: 1
+Customer: 1 Name: gSpR48P4DK2DkU OE BARBARBAR
+Cust-Balance: $ -100918.086
+
+Order-Number: 1055 Entry-Date: 2014-08-27 Carrier-Id: 3
+Supply-W	Item-ID		Qty	Amount
+1		10127		5	68.1278
+1		46626		5	16.928095
+1		54518		5	32.798813
+1		78792		5	49.973457
+1		71748		5	48.52951
+1		40319		5	1.4516069
+1		30975		5	78.68519
+1		99894		5	76.76189
+1		61404		5	62.064137
+1		19005		5	60.099537
+1		82616		5	17.566525
+1		63498		5	48.335815
+1		48160		5	80.189095
+1		31583		5	58.268333
+=========================================================================
+
+
+==============================Delivery==================================
+INPUT	o_carrier_id: 1
+
+Warehouse: 1
+o_carrier_id: 1
+Execution Status: Delivery has been queued
+=========================================================================
+
+
+==============================Stock Level================================
+INPUT	threshold: 18
+
+Warehouse: 2	District: 10
+Stock Level Threshold: 18
+low stock: 1311
+=========================================================================
+

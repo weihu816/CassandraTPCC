@@ -644,7 +644,7 @@ public class Loader {
 			c_city = MakeAlphaString( 10,20 ); 		/* City */
 			c_state = MakeAlphaString( 2,2 ); 		/* State */
 			c_zip = MakeNumberString( 9,9 ); 		/* Zip */
-			c_since = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
+			c_since = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 			c_phone = MakeNumberString(16, 16);
 			if ( randomInt( 0, 1 ) == 1) {
 				c_credit = "GC";
@@ -720,7 +720,7 @@ public class Loader {
 			column.setName(toByteBuffer("c_payment_cnt"));
 			column.setValue(toByteBuffer(1));
 			client.insert(key, column_parent_c, column, ConsistencyLevel.ONE);
-			column.setName(toByteBuffer("c_deliver_cnt"));
+			column.setName(toByteBuffer("c_delivery_cnt"));
 			column.setValue(toByteBuffer(0));
 			client.insert(key, column_parent_c, column, ConsistencyLevel.ONE);
 			column.setName(toByteBuffer("c_data"));
@@ -729,7 +729,7 @@ public class Loader {
 			
 			/* history table data generation */
 			h_amount = 10.0f; 
-			h_date = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
+			h_date = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 			h_data = MakeAlphaString( 12,24 );
 			
 			/* key */
@@ -811,8 +811,8 @@ public class Loader {
 		
 		o_d_id = d_id;
 		o_w_id = w_id;
-		o_entry_d = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
-		ol_delivery_d = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
+		o_entry_d = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
+		ol_delivery_d = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 		/* initialize permutation of customer numbers */
 		int permutation[] = new int[CUST_PER_DIST];
 		for (int i = 0; i < CUST_PER_DIST; i++) {
@@ -870,6 +870,7 @@ public class Loader {
 				
 				/* Load new order table */
 				New_Orders( o_id, o_w_id, o_d_id );
+				
 			} else {
 				/* the first 2100 orders have not been delivered */
 				column.setName(toByteBuffer("o_carrier_id"));

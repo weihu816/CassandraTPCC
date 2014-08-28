@@ -1,19 +1,14 @@
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
 import org.apache.cassandra.thrift.Cassandra;
 import org.apache.cassandra.thrift.Column;
-import org.apache.cassandra.thrift.ColumnOrSuperColumn;
-import org.apache.cassandra.thrift.ColumnPath;
 import org.apache.cassandra.thrift.Compression;
-import org.apache.cassandra.thrift.ConsistencyLevel;
 import org.apache.cassandra.thrift.CqlResult;
 import org.apache.cassandra.thrift.CqlRow;
 import org.apache.cassandra.thrift.InvalidRequestException;
@@ -35,7 +30,7 @@ import org.apache.thrift.transport.TTransportException;
  */
 public class TPCC {
 	
-	/* Database information */
+	/* Database configuration */
 	private String DB_KEYSPACE = "tpcc";
 	private String DB_ADDRESS = "localhost";
 	private int DB_PORT = 9160;
@@ -184,11 +179,10 @@ public class TPCC {
 		int d_next_o_id = 0, o_id = 0, o_all_local = 1;
 		int c_id = NURand(A_C_ID, 1,3000), o_ol_cnt = randomInt(5, 15);
 		float w_tax = 0, d_tax = 0, c_discount = 0;
-		String o_entry_d = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
+		String o_entry_d = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 		String query;
 		CqlResult result;
-		
-		/* rbk is used for 1% of error : TODO */
+		boolean valid = true;
 		
 		/* retrieve warehouse information  */
 		result = executeQuery("SELECT w_tax FROM warehouse WHERE key='" + w_id + "'");
@@ -203,11 +197,14 @@ public class TPCC {
 		
 		/* retrieve customer information  */
 		String customer_key = w_id + "_" + d_id + "_" + c_id;
-		result = executeQuery("SELECT c_discount FROM customer WHERE key='" + customer_key + "'");
+		String c_last = null, c_credit = null;
+		result = executeQuery("SELECT c_discount, c_credit, c_last FROM customer WHERE key='" + customer_key + "'");
 		for (CqlRow row : result.getRows()) {
 			for (Column column : row.getColumns() ) {
 				switch(toString(column.getName())) {
 				case "c_discount": c_discount = Float.valueOf(toString(column.getValue())); break;
+				case "c_last": c_last = toString(column.getValue()); break;
+				case "c_credit": c_credit = toString(column.getValue()); break;
 				default: System.out.println("Error: Neworder - fail to retrieve customer information");
 				}
 			}
@@ -225,21 +222,28 @@ public class TPCC {
 				}
 			}
 		}
-		System.out.println("d_next_o_id = " + d_next_o_id);
+
 		/* increase d_next_o_id by one */
 		query = "UPDATE district SET d_next_o_id = '" + String.valueOf(d_next_o_id+1)  + "' WHERE KEY='" + district_key + "'";
 		executeQuery(query);
 		
 		/* build supware for each order line */
 		int supware[] = new int[o_ol_cnt];
+		int ol_i_ids[] = new int[o_ol_cnt];
+		int ol_quantities[] = new int[o_ol_cnt];
+		int s_quantities[] = new int[o_ol_cnt];
+		String i_names[] = new String[o_ol_cnt];
+		float i_prices[] = new float[o_ol_cnt];
+		float ol_amounts[] = new float[o_ol_cnt];
+		char bg[] = new char[o_ol_cnt];
 		for (int ol_number = 1; ol_number<=o_ol_cnt; ol_number++) {
 			
 			int ol_supply_w_id; 
 			/* 99% of supply are from home stock*/
 			if ((new Random()).nextInt(100) == 0 && count_ware > 1) {
-				int supply_w_id = (new Random()).nextInt(count_ware) + 1; 
+				int supply_w_id = randomInt(1, count_ware); 
 				while (supply_w_id == w_id) {
-					supply_w_id = (new Random()).nextInt(count_ware) + 1; 
+					supply_w_id = randomInt(1, count_ware); 
 				}
 				ol_supply_w_id = supply_w_id;
 			} else {
@@ -250,6 +254,12 @@ public class TPCC {
 				o_all_local = 0; 
 			}
 			supware[ol_number - 1] = ol_supply_w_id;
+			ol_i_ids[ol_number - 1] = NURand(A_OL_I_ID,1,100000);
+			/* rbk is used for 1% of error */
+			int rbk = randomInt(1, 100);
+			//if(rbk == 1) {
+				ol_i_ids[ol_number - 1] = randomInt(200001, 300000);
+			//}
 		}
 		
 		/* assign d_next_o_id to o_id */
@@ -266,21 +276,36 @@ public class TPCC {
 		executeQuery(query);
 		
 		/* for each order in the order line*/
-		for (int ol_number = 1; ol_number<=o_ol_cnt; ol_number++) {
+		for (int ol_number = 1; ol_number <= o_ol_cnt; ol_number++) {
 
 			int ol_supply_w_id = supware[ol_number - 1]; 
-			int ol_i_id = NURand(A_OL_I_ID,1,100000); 
+			int ol_i_id = ol_i_ids[ol_number - 1]; 
 			int ol_quantity = randomInt(1, 10);
 			int s_quantity = 0;
 			float i_price = 0.0f, ol_amount = 0.0f;
-			String ol_dist_info = "";
+			String i_name = null, ol_dist_info = null, i_data = null;
 			
 			/* retrieve item information */
-			result = executeQuery("SELECT i_price FROM item WHERE key='" + ol_i_id + "'");
+			result = executeQuery("SELECT i_price, i_name, i_data FROM item WHERE i_id='" + ol_i_id + "'");
+			if (result.getRowsSize() == 0) {
+				/* roll back new order and return */
+				executeQuery("DELETE FROM order WHERE key='" + order_key + "'");
+				executeQuery("DELETE FROM new_order WHERE key='" + order_key + "'");
+				for (int i = 1; i < o_ol_cnt; i++) {
+					String order_line_key = w_id + "_" + d_id + "_" + o_id + "_" + i;
+					executeQuery("DELETE FROM order_line WHERE key='" + order_line_key + "'");
+				}
+				executeQuery("UPDATE district SET d_next_o_id = '" + String.valueOf(d_next_o_id-1)  + "' WHERE KEY='" + district_key + "'");
+				valid = false;
+				break;
+			}
+			
 			for (CqlRow row : result.getRows()) {
 				for (Column column : row.getColumns() ) {
 					switch(toString(column.getName())) {
 						case "i_price": i_price = Float.valueOf(toString(column.getValue())); break;
+						case "i_name": i_name = toString(column.getValue()); break;
+						case "i_data": i_data = toString(column.getValue()); break;
 						default: System.out.println("Error: Neworder - fail to retrieve item information");
 					}
 				}
@@ -289,9 +314,10 @@ public class TPCC {
 			/* retrieve stock information */
 			String stock_key = ol_supply_w_id + "_" + ol_i_id;
 			String s_dist[] = new String[DIST_PER_WARE];
+			String s_data = null;
 			
 			query = "SELECT s_quantity, s_dist_01, s_dist_02, s_dist_03, s_dist_04, s_dist_05, s_dist_06, s_dist_07, s_dist_08, "
-					+ "s_dist_09, s_dist_10 FROM stock WHERE key='" + stock_key + "'";
+					+ "s_dist_09, s_dist_10, s_data FROM stock WHERE key='" + stock_key + "'";
 			result = executeQuery(query);
 			for (CqlRow row : result.getRows()) {
 				for (Column column : row.getColumns() ) {
@@ -307,113 +333,177 @@ public class TPCC {
 						case  "s_dist_08": s_dist[7] =  toString(column.getValue()); break;
 						case  "s_dist_09": s_dist[8] =  toString(column.getValue()); break;
 						case  "s_dist_10": s_dist[9] =  toString(column.getValue()); break;
+						case  "s_data": s_data =  toString(column.getValue()); break;
 						default: System.out.println("Error: Neworder - fail to retrieve stock information");
 					}
 				}
 			}
-			
 			ol_dist_info = s_dist[d_id-1];
+			
+
+			if ( i_data != null && s_data != null && (i_data.indexOf("original") != -1) && (s_data.indexOf("original") != -1) ) {
+				bg[ol_number-1] = 'B'; 
+			} else {
+				bg[ol_number-1] = 'G';
+			}
 			
 			if (s_quantity > ol_quantity) {
 				s_quantity = s_quantity - ol_quantity;
-			}
-			else {
+			} else {
 				s_quantity = s_quantity - ol_quantity + 91;
 			}
 
 			/* update stock quantity */
-			query = "UPDATE stock SET s_quantity='" + s_quantity + "' WHERE key='" + stock_key  + "'";
-			executeQuery(query);
+			executeQuery("UPDATE stock SET s_quantity='" + s_quantity + "' WHERE key='" + stock_key  + "'");
 			
 			/* calculate order-line amount*/
 			ol_amount = ol_quantity * i_price *(1+w_tax+d_tax) *(1-c_discount); 
 			
 			/* insert into order line table */
 			String order_line_key = w_id + "_" + d_id + "_" + o_id + "_" + ol_number;
-			query = "INSERT INTO order_line (key, ol_o_id,  ol_d_id, ol_w_id, ol_number, ol_i_id, ol_supply_w_id, ol_deliver_id, ol_quantity, ol_amount, ol_dist_info) "
+			query = "INSERT INTO order_line (key, ol_o_id,  ol_d_id, ol_w_id, ol_number, ol_i_id, ol_supply_w_id, ol_delivery_id, ol_quantity, ol_amount, ol_dist_info) "
 					+ "VALUES ('" + order_line_key  + "', '" + o_id + "', '" + d_id + "', '" + w_id + "', '" + ol_number
 					+ "' ,'" + ol_i_id + "', '" + ol_supply_w_id + "', 'NULL', '" + ol_quantity + "', '" + ol_amount 
 					+ "', '" + ol_dist_info + "')";
 			executeQuery(query);
+			
+			i_names[ol_number - 1] = i_name;
+			i_prices[ol_number - 1] = i_price;
+			ol_amounts[ol_number - 1] = ol_amount;
+			ol_quantities[ol_number - 1] = ol_quantity;
+			s_quantities[ol_number - 1] = s_quantity;
 		}
+		
+		/* output */
+		System.out.println("==============================New Order==================================");
+		System.out.println("Warehouse: " + w_id + "\tDistrict: " + d_id);
+		if (valid) {
+			System.out.println("Customer: " + c_id + "\tName: " + c_last + "\tCredit: " + c_credit + "\tDiscount: " + c_discount);
+			System.out.println("Order Number: " + o_id + " OrderId: " + o_id + " Number_Lines: " + o_ol_cnt + " W_tax: " + w_tax + " D_tax: " + d_tax + "\n");
+			System.out.println("Supp_W Item_Id           Item Name     ol_q s_q  bg Price Amount");
+			for (int i = 0; i < o_ol_cnt; i++) {
+				System.out.println( String.format("  %4d %6d %24s %2d %4d %3c %6.2f %6.2f",
+						supware[i], ol_i_ids[i], i_names[i], ol_quantities[i], s_quantities[i], bg[i], i_prices[i], ol_amounts[i]));
+			}
+		} else {
+			System.out.println("Customer: " + c_id + "\tName: " + c_last + "\tCredit: " + c_credit + "\tOrderId: " + o_id);
+			System.out.println("Exection Status: Item number is not valid");
+		}
+		System.out.println("=========================================================================");
 		
         /* Close database connection */
 		closeConnection();
 	}
 	
-	public void Payment(int d_id, Object c_id_or_c_last, int c_d_id, int c_w_id) throws InvalidRequestException, TException,
+	
+	/*
+	 * Function name: Payment
+	 * Description: The Payment business transaction updates the customer's balance and reflects the payment
+	 * 				on the district and warehouse sales statistics.
+	 * Argument: 	d_id － randomly selected within [1 .. 10]
+	 * 				c_id_or_c_last － 60% c_last random NURand(255,0,999) | 40% c_id - random NURand(1023,1,3000)
+	 */
+	public void Payment(int w_id, int d_id, Object c_id_or_c_last) throws InvalidRequestException, TException,
 			UnsupportedEncodingException {
 		
 		/* Set up database connection */
 		getConnection();
 		
-		/* local variables */
-		Boolean byname = false ;
-		
+		/* c_id or c_last */
+		Boolean byname = false;
 		if (c_id_or_c_last instanceof String) {
 			byname = true;
 		} 
-		
+		/* local variables */
 		float h_amount = randomFloat(0, 5000);
-		int w_id = randomInt(1, count_ware);
-		String h_date = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
-		
-		String query;
+		int x = randomInt(1, 100);
+		/*  the customer resident warehouse is the home 85% , remote 15% of the time  */
+		int c_d_id, c_w_id;
+		if (x <= 85 ) { 
+			c_w_id = w_id;
+			c_d_id = d_id;
+		} else {
+			c_d_id = randomInt(1, 10);
+			do {
+				c_w_id = randomInt(1, count_ware);
+			} while (c_w_id == w_id && count_ware > 1);
+		}
+		String h_date = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 		CqlResult result;
 		
-		/* retrieve warehouse w_ytd */
+		
+		/* retrieve and update warehouse w_ytd */
 		float w_ytd = 0;
-		String w_name = null;
-		result = executeQuery("SELECT w_ytd, w_name FROM warehouse WHERE key='" + w_id + "'");
+		String w_name = null, w_street_1 = null, w_street_2 = null, w_city = null, w_state = null, w_zip = null;
+		result = executeQuery("SELECT w_ytd, w_name, w_street_1, w_street_2, w_city, w_state, w_zip FROM warehouse WHERE key='" + w_id + "'");
 		for (CqlRow row : result.getRows()) {
 			for (Column column : row.getColumns() ) {
 				switch(toString(column.getName())) {
 					case "w_ytd": w_ytd = Float.valueOf(toString(column.getValue())); break;
 					case "w_name": w_name = toString(column.getValue()); break;
+					case "w_street_1": w_street_1 = toString(column.getValue()); break;
+					case "w_street_2": w_street_2 = toString(column.getValue()); break;
+					case "w_city": w_city = toString(column.getValue()); break;
+					case "w_state": w_state = toString(column.getValue()); break;
+					case "w_zip": w_zip = toString(column.getValue()); break;
 					default: System.out.println("Error: Payment - fail to retrieve warehouse information");
 				}
 			}
 		}
 		w_ytd += h_amount;
-		/* update warehouse w_ytd */
-		query = "UPDATE warehouse SET w_ytd='" + w_ytd + "' WHERE key='" + w_id  + "'";
-		executeQuery(query);
+		executeQuery("UPDATE warehouse SET w_ytd='" + w_ytd + "' WHERE key='" + w_id  + "'");
 		
-		/* retrieve district d_ytd */
+		
+		/* retrieve and update district d_ytd */
 		float d_ytd = 0;
-		String d_name = null;
+		String d_name = null,  d_street_1 = null, d_street_2 = null, d_city = null, d_state = null, d_zip = null;
 		String district_key = w_id + "_" + d_id;
-		result = executeQuery("SELECT d_ytd, d_name FROM district WHERE key='" + district_key + "'");
+		result = executeQuery("SELECT d_ytd, d_name, d_street_1, d_street_2, d_city, d_state, d_zip FROM district WHERE key='" + district_key + "'");
 		for (CqlRow row : result.getRows()) {
 			for (Column column : row.getColumns() ) {
 				switch(toString(column.getName())) {
 					case "d_ytd": d_ytd = Float.valueOf(toString(column.getValue())); break;
-					case "d_name": w_name = toString(column.getValue()); break;
+					case "d_name": d_name = toString(column.getValue()); break;
+					case "d_street_1": d_street_1 = toString(column.getValue()); break;
+					case "d_street_2": d_street_2 = toString(column.getValue()); break;
+					case "d_city": d_city = toString(column.getValue()); break;
+					case "d_state": d_state = toString(column.getValue()); break;
+					case "d_zip": d_zip = toString(column.getValue()); break;
 					default: System.out.println("Error: Payment - fail to retrieve district information");
 				}
 			}
 		}
 		d_ytd += h_amount;
-		/* update district d_ytd */
-		query = "UPDATE warehouse SET d_ytd='" + d_ytd + "' WHERE key='" + district_key  + "'";
-		executeQuery(query);
+		executeQuery("UPDATE warehouse SET d_ytd='" + d_ytd + "' WHERE key='" + district_key  + "'");
 		
 		/* retrieve customer information */
 		float c_balance = 0.0f;
-		String c_credit = null, c_data = null, h_data = null;
+		String c_data = null, h_data = null, c_first = null, c_middle = null, c_last = null;
+		String c_street_1 = null, c_street_2 = null, c_city = null, c_state = null, c_zip = null;
+		String c_phone = null, c_credit = null, c_credit_lim = null, c_since = null;
 		int c_id = 0;
 		String customer_key = null;
 		if (byname) {
-			result = executeQuery("SELECT c_id, c_balance, c_credit, c_data FROM customer WHERE c_w_id='" + c_w_id 
+			result = executeQuery("SELECT c_first, c_middle, c_last, c_id, c_balance, c_credit, c_data, c_street_1, c_street_2, "
+					+ "c_city, c_state, c_zip, c_phone, c_credit, c_credit_lim, c_since FROM customer WHERE c_w_id='" + c_w_id 
 					+ "'AND c_d_id='" + c_d_id + "'AND c_last='" + (String)c_id_or_c_last + "'");
-			
+			/* TODP: ORDER BY c_first and get midpoint */
 			for (CqlRow row : result.getRows()) {
 				customer_key = toString(row.getKey());
 				for (Column column : row.getColumns()) {
 					switch (toString(column.getName())) {
 					case "c_id": c_id = Integer.valueOf(toString(column.getValue())); break;
+					case "c_first": c_first = toString(column.getValue()); break;
+					case "c_middle": c_middle = toString(column.getValue()); break;
+					case "c_last": c_last = toString(column.getValue()); break;
+					case "c_city": c_city = toString(column.getValue()); break;
+					case "c_state": c_state = toString(column.getValue()); break;
+					case "c_zip": c_zip = toString(column.getValue()); break;
+					case "c_phone": c_phone = toString(column.getValue()); break;
 					case "c_balance": c_balance = Float.valueOf(toString(column.getValue())); break;
 					case "c_credit": c_credit = toString(column.getValue()); break;
+					case "c_credit_lim": c_credit_lim = toString(column.getValue()); break;
+					case "c_since": c_since = toString(column.getValue()); break;
 					case "c_data": c_data = toString(column.getValue()); break;
 					default: System.out.println("Error: Payment - fail to retrieve customer information");
 					}
@@ -422,13 +512,25 @@ public class TPCC {
 			}
 		} else {
 			customer_key = c_w_id + "_" + c_d_id + "_" + c_id_or_c_last;
-			result = executeQuery("SELECT c_balance, c_credit, c_data FROM customer WHERE key='" + customer_key + "'");
+			result = executeQuery("SELECT c_balance, c_credit, c_data, c_first, c_middle, c_last, c_street_1, c_street_2, "
+					+ "c_city, c_state, c_zip, c_phone, c_credit, c_credit_lim, c_since FROM customer WHERE key='" + customer_key + "'");
 			c_id = (int) c_id_or_c_last;
 			for (CqlRow row : result.getRows()) {
 				for (Column column : row.getColumns()) {
 					switch (toString(column.getName())) {
+					case "c_first": c_first = toString(column.getValue()); break;
+					case "c_middle": c_middle = toString(column.getValue()); break;
+					case "c_last": c_last = toString(column.getValue()); break;
+					case "c_street_1": c_street_1 = toString(column.getValue()); break;
+					case "c_street_2": c_street_2 = toString(column.getValue()); break;
+					case "c_city": c_city = toString(column.getValue()); break;
+					case "c_state": c_state = toString(column.getValue()); break;
+					case "c_zip": c_zip = toString(column.getValue()); break;
+					case "c_phone": c_phone = toString(column.getValue()); break;
 					case "c_balance": c_balance = Float.valueOf(toString(column.getValue())); break;
 					case "c_credit": c_credit = toString(column.getValue()); break;
+					case "c_credit_lim": c_credit_lim = toString(column.getValue()); break;
+					case "c_since": c_since = toString(column.getValue()); break;
 					case "c_data": c_data = toString(column.getValue()); break;
 					default: System.out.println("Error: Payment - fail to retrieve customer information");
 					}
@@ -437,7 +539,7 @@ public class TPCC {
 		}
 		
 		
-		c_balance += h_amount;
+		c_balance -= h_amount;
 		h_data = w_name + "    " + d_name;
 		if (c_credit.equals("BC")) {
 			String c_new_data = String.format("| %4d %2d %4d %2d %4d $%7.2f %12s %24s", 
@@ -445,32 +547,64 @@ public class TPCC {
 			c_new_data += c_data;
 			
 			/* update customer c_balance， c_data */
-			query = "UPDATE customer SET c_balance='" + c_balance + "', c_data='" + c_new_data + "' WHERE key='" + customer_key  + "'";
-			executeQuery(query);
+			executeQuery("UPDATE customer SET c_balance='" + c_balance + "', c_data='" + c_new_data + "' WHERE key='" + customer_key  + "'");
 			
 		} else {
 			/* update customer c_balance */
-			query = "UPDATE customer SET c_balance='" + c_balance + "' WHERE key='" + customer_key  + "'";
-			executeQuery(query);
+			executeQuery("UPDATE customer SET c_balance='" + c_balance + "' WHERE key='" + customer_key  + "'");
 
 		}
 		
 		
 		/* retrieve history key */
 		String history_key = String.valueOf(System.currentTimeMillis());
-		System.out.println("history_key = " + history_key);
 		/* insert into history table */
-		query = "INSERT INTO history (key, h_c_d_id,  h_c_w_id, h_c_id, h_d_id, h_w_id, h_date, h_amount, h_data) "
+		executeQuery("INSERT INTO history (key, h_c_d_id,  h_c_w_id, h_c_id, h_d_id, h_w_id, h_date, h_amount, h_data) "
 				+ "VALUES ('" + history_key + "', '" + c_d_id + "', '"  + c_w_id + "', '"  + c_id + "', '"  + d_id + "', '" 
-				+ w_id + "', '" + h_date + "', '"  + h_amount + "', '"  + h_data + "')";
-		executeQuery(query);
+				+ w_id + "', '" + h_date + "', '"  + h_amount + "', '"  + h_data + "')");
+		
+		/* output */
+		System.out.println("==============================Payment====================================");
+		System.out.println("Date: " + h_date + " District: " + d_id);
+		System.out.println("Warehouse: " + w_id + "\t\t\tDistrict");
+		System.out.println(w_street_1 + "\t\t\t\t" + d_street_1);
+		System.out.println(w_street_2 + "\t\t\t" + d_street_2);
+		System.out.println(w_city + " " + w_state + " " + w_zip + "\t" + d_city + " " + d_state + " " + d_zip);
+		System.out.println("");
+		System.out.println("Customer: " + c_id + "\tCustomer-Warehouse: " + c_w_id + "\tCustomer-District: " + c_d_id);
+		System.out.println("Name:" + c_first + " " + c_middle + " " + c_last + "\tCust-Since:" + c_since);
+		System.out.println(c_street_1 + "\t\t\tCust-Credit:" + c_credit);
+		System.out.println(c_street_2);
+		System.out.println(c_city + " " + c_state + " " + c_zip + " \tCust-Phone:" + c_phone);
+		System.out.println("");
+		System.out.println("Amount Paid:" + h_amount  + "\t\t\tNew Cust-Balance: " + c_balance);
+		System.out.println("Credit Limit:" + c_credit_lim);
+		System.out.println("");
+		if (c_credit.equals("BC")) {
+			c_data = c_data.substring(0, 200);
+		} 
+		int length = c_data.length();
+		int n = 50;
+		int num_line = length / n;
+		if (length % n != 0) num_line += 1;
+		System.out.println( "Cust-data: \t" + c_data.substring(0, n));
+		for (int i = 1; i < num_line - 1; i++) {
+			System.out.println("\t\t" + c_data.substring(n*i, n*(i+1)));
+		}
+		System.out.println("\t\t" + c_data.substring(n*(num_line-1)));
+		System.out.println("=========================================================================");
+		
+		
 		/* Close database connection */
 		closeConnection();
 	}
 	
 	
 	/*
-	 * 
+	 * Function name: Orderstatus
+	 * Description: The Order-Status business transaction queries the status of a customer's last order. 
+	 * Argument: 	d_id － randomly selected within [1 .. 10]
+	 * 				c_id_or_c_last - 60% c_last random NURand(255,0,999) | 40% c_id random NURand(1023,1,3000) 
 	 */
 	public void Orderstatus(int d_id, Object c_id_or_c_last) throws InvalidRequestException, TException, UnsupportedEncodingException {
 		
@@ -481,7 +615,7 @@ public class TPCC {
 		Boolean byname = false;
 		int w_id = randomInt(1, count_ware);
 		float c_balance = 0.0f;
-		String c_credit, c_data;
+		String c_first = null, c_middle = null, c_last = null;
 		
 		if (c_id_or_c_last instanceof String) {
 			byname = true;
@@ -494,7 +628,8 @@ public class TPCC {
 		String customer_key = null;
 		int c_id = 0;
 		if (byname) {
-			result = executeQuery("SELECT c_id, c_balance, c_credit, c_data FROM customer WHERE c_w_id='" + w_id 
+			/* TODO: ORDER BY c_first and Choose the middle point */
+			result = executeQuery("SELECT c_id, c_balance, c_first, c_middle, c_last FROM customer WHERE c_w_id='" + w_id 
 					+ "'AND c_d_id='" + d_id + "'AND c_last='" + (String)c_id_or_c_last + "'");
 			for (CqlRow row : result.getRows()) {
 				customer_key = toString(row.getKey());
@@ -502,8 +637,9 @@ public class TPCC {
 					switch (toString(column.getName())) {
 					case "c_id": c_id = Integer.valueOf(toString(column.getValue())); break;
 					case "c_balance": c_balance = Float.valueOf(toString(column.getValue())); break;
-					case "c_credit": c_credit = toString(column.getValue()); break;
-					case "c_data": c_data = toString(column.getValue()); break;
+					case "c_first": c_first = toString(column.getValue()); break;
+					case "c_middle": c_middle = toString(column.getValue()); break;
+					case "c_last": c_last = toString(column.getValue()); break;
 					default: System.out.println("Error: Payment - fail to retrieve customer information");
 					}
 				}
@@ -512,22 +648,24 @@ public class TPCC {
 		} else {
 			c_id = (int) c_id_or_c_last;
 			customer_key = w_id + "_" + d_id + "_" + c_id;
-			result = executeQuery("SELECT c_balance, c_credit, c_data FROM customer WHERE key='" + customer_key + "'");
+			result = executeQuery("SELECT c_balance, c_balance, c_first, c_middle, c_last FROM customer WHERE key='" + customer_key + "'");
 			for (CqlRow row : result.getRows()) {
 				for (Column column : row.getColumns()) {
 					switch (toString(column.getName())) {
 					case "c_balance": c_balance = Float.valueOf(toString(column.getValue())); break;
-					case "c_credit": c_credit = toString(column.getValue()); break;
-					case "c_data": c_data = toString(column.getValue()); break;
+					case "c_first": c_first = toString(column.getValue()); break;
+					case "c_middle": c_middle = toString(column.getValue()); break;
+					case "c_last": c_last = toString(column.getValue()); break;
 					default: System.out.println("Error: Orderstatus - fail to retrieve customer information");
 					}
 				}
 			}
 		}
 		
-		/* retrieve a order */
+		/* retrieve an order */
 		int o_id= 0, o_carrier_id = 0;
 		String o_entry_d = null;
+		/* TODO: ORDER BY o_id DESC */
 		result = executeQuery("SELECT o_id, o_carrier_id, o_entry_d FROM order WHERE o_w_id='" + w_id 
 				+ "'AND o_d_id='" + d_id  + "'AND o_c_id='" + c_id + "'");
 		for (CqlRow row : result.getRows()) {
@@ -546,10 +684,17 @@ public class TPCC {
 		/* retrieve order_line information */
 		int ol_i_id = 0, ol_supply_w_id = 0, ol_quantity = 0;
 		float ol_amount = 0.0f;
-		String ol_delivery_d = null;
-		result = executeQuery("SELECT ol_i_id, ol_supply_w_id, ol_quantity, ol_amount, ol_delivery_d FROM order_line "
+		result = executeQuery("SELECT ol_i_id, ol_supply_w_id, ol_quantity, ol_amount FROM order_line "
 				+ " WHERE ol_w_id='" + w_id  + "' AND ol_d_id='" + d_id +  "' AND ol_o_id='" + o_id + "'");
-		System.out.println("=========================Order Status==========================");
+		
+		/* output */
+		System.out.println("==============================Order Status===============================");
+		System.out.println("Warehouse: " + w_id + " District: " + d_id);
+		System.out.println("Customer: " + c_id + " Name: " + c_first + " " + c_middle +  " " + c_last);
+		System.out.println("Cust-Balance: $ " + c_balance);
+		System.out.println("");
+		System.out.println("Order-Number: " + o_id + " Entry-Date: " + o_entry_d + " Carrier-Id: " + o_carrier_id);
+		System.out.println("Supply-W\tItem-ID\t\tQty\tAmount");
 		for (CqlRow row : result.getRows()) {
 			customer_key = toString(row.getKey());
 			for (Column column : row.getColumns()) {
@@ -558,14 +703,12 @@ public class TPCC {
 				case "ol_supply_w_id": ol_supply_w_id = Integer.valueOf(toString(column.getValue())); break;
 				case "ol_quantity": ol_quantity = Integer.valueOf(toString(column.getValue())); break;
 				case "ol_amount": ol_amount = Float.valueOf(toString(column.getValue())); break;
-				case "ol_delivery_d": ol_delivery_d = toString(column.getValue()); break;
 				default: System.out.println("Error: Payment - fail to retrieve order_line information");
 				}
 			}
-			System.out.println("Order :  ol_i_id=" + ol_i_id + " ol_supply_w_id=" + ol_supply_w_id + " ol_quantity=" + ol_quantity);
-			System.out.println("         ol_amount=" + ol_amount + " ol_delivery_d=" + ol_delivery_d);
+			System.out.println(ol_supply_w_id + "\t\t" + ol_i_id + "\t\t" + ol_quantity + "\t" + ol_amount);
 		}
-		System.out.println("===============================================================");
+		System.out.println("=========================================================================");
 		
 		/* Close database connection */
 		closeConnection();
@@ -574,9 +717,9 @@ public class TPCC {
 	
 	/*
 	 * Function name: Delivery
-	 * Description: The Stock-Level business transaction determines the number of recently
-	 * 				sold items that have a stock level below a specified threshold.
-	 * Argument: o_carrier_id
+	 * Description: The Delivery business transaction consists of processing a batch of 10 new (not yet delivered) orders.
+	 * 				Each order is processed (delivered) in full within the scope of a read-write database transaction.
+	 * Argument: o_carrier_id - randomly selected within [1 .. 10]
 	 */
 	public void Delivery(int o_carrier_id) throws InvalidRequestException, TException, UnsupportedEncodingException {
 		
@@ -590,8 +733,15 @@ public class TPCC {
 		
 		/* choose an new order */
 		int no_o_id = 0;
+		String new_order_key = null;
+		/* TODO: ORDER BY no_o_id ASC*/
 		result = executeQuery("SELECT no_o_id FROM new_order WHERE no_d_id='" + d_id + "' AND no_w_id='" + w_id + "'");
 		for (CqlRow row : result.getRows()) {
+			/*  If no matching row is found, then the delivery of an order for this district is skipped. */
+			if (row.getColumnsSize() == 0) {
+				return;
+			}
+			new_order_key = toString(row.getKey());
 			for (Column column : row.getColumns() ) {
 				switch(toString(column.getName())) {
 				case "no_o_id": no_o_id = Integer.valueOf(toString(column.getValue())); break;
@@ -600,6 +750,8 @@ public class TPCC {
 			}
 			break;
 		}
+		/* delete this new order for delivery */
+		executeQuery("DELETE FROM new_order WHERE key='" + new_order_key + "'");
 		
 		/* get the customer id for this order */
 		String customer_key = null;
@@ -615,7 +767,7 @@ public class TPCC {
 		executeQuery("UPDATE order SET o_carrier_id='" + o_carrier_id + "'  WHERE key='" + order_key  + "'");
 		
 		/* set deliver time for order line */
-		String ol_delivery_d = (new SimpleDateFormat("yyyy-MM-dd")).format(new Date(System.currentTimeMillis()));
+		String ol_delivery_d = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 		String ol_number = null, order_line_key = null;
 		result = executeQuery("SELECT ol_number FROM order_line WHERE ol_w_id='" + w_id 
 				+ "' AND ol_d_id='" + d_id + "' AND ol_o_id='" + no_o_id + "'");
@@ -647,30 +799,33 @@ public class TPCC {
 			}
 		}
 		
-		/* retrieve balance of customers */
+		/* retrieve balance of customers and c_delivery_cnt*/
 		float c_balance =  0.0f;
-		result = executeQuery("SELECT c_balance FROM customer WHERE key='" + customer_key + "'");
+		int c_delivery_cnt = 0;
+		result = executeQuery("SELECT c_balance, c_delivery_cnt FROM customer WHERE key='" + customer_key + "'");
 		for (CqlRow row : result.getRows()) {
 			for (Column column : row.getColumns() ) {
 				switch(toString(column.getName())) {
 				case "c_balance":  c_balance = Float.valueOf(toString(column.getValue())); break;
+				case "c_delivery_cnt":  c_delivery_cnt = Integer.valueOf(toString(column.getValue())); break;
 				default: System.out.println("Error: Delivery - fail to retrieve ol_amount information");
 				}
 			}
 			break;
 		}
 
-		/* update balance of customers */
-		result = executeQuery("UPDATE customer SET c_balance='" + (c_balance + ol_total) + "'  WHERE key='" + customer_key + "'");
+		/* update c_balance, c_delivery_cnt of customers */
+		result = executeQuery("UPDATE customer SET c_balance='" + (c_balance + ol_total) 
+				+ "', c_delivery_cnt='" + (c_delivery_cnt + 1) + "'  WHERE key='" + customer_key + "'");
 		
 		/* output */
-		System.out.println("=========================Delivery=============================");
+		System.out.println("==============================Delivery==================================");
 		System.out.println("INPUT	o_carrier_id: " + o_carrier_id);
 		System.out.println();
 		System.out.println("Warehouse: " + w_id);
 		System.out.println("o_carrier_id: " + o_carrier_id);
 		System.out.println("Execution Status: Delivery has been queued");
-		System.out.println("===============================================================");
+		System.out.println("=========================================================================");
 		/* Close database connection */
 		closeConnection();
 	}
@@ -742,13 +897,13 @@ public class TPCC {
 		}
 		
 		/* output */
-		System.out.println("=========================Stock Level===========================");
+		System.out.println("==============================Stock Level================================");
 		System.out.println("INPUT	threshold: " + threshold);
 		System.out.println();
 		System.out.println("Warehouse: " + w_id + "\tDistrict: " + d_id);
 		System.out.println("Stock Level Threshold: " + threshold);
 		System.out.println("low stock: " + low_stock);
-		System.out.println("===============================================================");
+		System.out.println("=========================================================================");
 
 		/* Close database connection */
 		closeConnection();
