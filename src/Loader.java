@@ -32,7 +32,7 @@ public class Loader {
 	private TTransport DB_TR = null;
 	Cassandra.Client client = null;
 	/* Number of warehouses */
-	private int count_ware; 
+	private int count_ware = TPCC.COUNT_WARE; 
 	/* The constants as specified */
 	public static final int MAXITEMS = 100000;
 	public static final int CUST_PER_DIST = 3000;

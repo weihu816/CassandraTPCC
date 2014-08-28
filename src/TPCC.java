@@ -37,7 +37,7 @@ public class TPCC {
 	/* db variables */
 	private TTransport DB_TR = null;
 	Cassandra.Client client = null;
-	private int count_ware = 2;
+	public static int COUNT_WARE = 2;
 	/* The constants as specified */
 	public static final int MAXITEMS = 100000;
 	public static final int CUST_PER_DIST = 3000;
@@ -240,10 +240,10 @@ public class TPCC {
 			
 			int ol_supply_w_id; 
 			/* 99% of supply are from home stock*/
-			if ((new Random()).nextInt(100) == 0 && count_ware > 1) {
-				int supply_w_id = randomInt(1, count_ware); 
+			if ((new Random()).nextInt(100) == 0 && COUNT_WARE > 1) {
+				int supply_w_id = randomInt(1, COUNT_WARE); 
 				while (supply_w_id == w_id) {
-					supply_w_id = randomInt(1, count_ware); 
+					supply_w_id = randomInt(1, COUNT_WARE); 
 				}
 				ol_supply_w_id = supply_w_id;
 			} else {
@@ -257,9 +257,9 @@ public class TPCC {
 			ol_i_ids[ol_number - 1] = NURand(A_OL_I_ID,1,100000);
 			/* rbk is used for 1% of error */
 			int rbk = randomInt(1, 100);
-			//if(rbk == 1) {
+			if(rbk == 1) {
 				ol_i_ids[ol_number - 1] = randomInt(200001, 300000);
-			//}
+			}
 		}
 		
 		/* assign d_next_o_id to o_id */
@@ -425,8 +425,8 @@ public class TPCC {
 		} else {
 			c_d_id = randomInt(1, 10);
 			do {
-				c_w_id = randomInt(1, count_ware);
-			} while (c_w_id == w_id && count_ware > 1);
+				c_w_id = randomInt(1, COUNT_WARE);
+			} while (c_w_id == w_id && COUNT_WARE > 1);
 		}
 		String h_date = (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")).format(new Date(System.currentTimeMillis()));
 		CqlResult result;
@@ -613,7 +613,7 @@ public class TPCC {
 		
 		/* local variables */
 		Boolean byname = false;
-		int w_id = randomInt(1, count_ware);
+		int w_id = randomInt(1, COUNT_WARE);
 		float c_balance = 0.0f;
 		String c_first = null, c_middle = null, c_last = null;
 		
@@ -663,7 +663,8 @@ public class TPCC {
 		}
 		
 		/* retrieve an order */
-		int o_id= 0, o_carrier_id = 0;
+		int o_id = 0;
+		String o_carrier_id = null;
 		String o_entry_d = null;
 		/* TODO: ORDER BY o_id DESC */
 		result = executeQuery("SELECT o_id, o_carrier_id, o_entry_d FROM order WHERE o_w_id='" + w_id 
@@ -673,7 +674,7 @@ public class TPCC {
 			for (Column column : row.getColumns()) {
 				switch (toString(column.getName())) {
 				case "o_id": o_id = Integer.valueOf(toString(column.getValue())); break;
-				case "o_carrier_id": o_carrier_id = Integer.valueOf(toString(column.getValue())); break;
+				case "o_carrier_id": o_carrier_id = toString(column.getValue()); break;
 				case "o_entry_d": o_entry_d = toString(column.getValue()); break;
 				default: System.out.println("Error: Payment - fail to retrieve order information");
 				}
@@ -727,7 +728,7 @@ public class TPCC {
 		getConnection();
 		
 		/* local variables */
-		int w_id = randomInt(1, count_ware);
+		int w_id = randomInt(1, COUNT_WARE);
 		int d_id = randomInt(1, DIST_PER_WARE);
 		CqlResult result;
 		
@@ -843,7 +844,7 @@ public class TPCC {
 		getConnection();
 		
 		/* local variables */
-		int w_id = randomInt(1, count_ware);
+		int w_id = randomInt(1, COUNT_WARE);
 		int d_id = randomInt(1, DIST_PER_WARE);
 		CqlResult result;
 
